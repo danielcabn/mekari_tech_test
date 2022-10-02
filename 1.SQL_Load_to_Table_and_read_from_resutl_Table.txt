@@ -1,0 +1,65 @@
+
+
+-------------------------Read From employee, timesheet and load to result table-------------------------
+
+with emp_daily_attendance as (select date,
+                                     tms.employee_id,
+                                  /*Notes: jika checkin null, by default checkin akan di set jam 09:00,
+                                  jika checkout null by default 18:00
+                                  jika checkin diatas jam 14:00 maka by default checkout jam 23:59
+                                    *Rules Checkin & Checkout bisa disesuaikan*
+                                   */
+                                     case
+                                         when checkin is null then to_timestamp('09:00:00', 'HH24:MI:SS')::time
+                                         when checkin < to_timestamp('09:00:00', 'HH24:MI:SS')::time
+                                             then to_timestamp('09:00:00', 'HH24:MI:SS')::time
+                                         else checkin end  checkin,
+                                     case
+                                         when checkout is null then to_timestamp('18:00:00', 'HH24:MI:SS')::time
+                                         when checkin > '12:00:00' then to_timestamp('23:59:59', 'HH24:MI:SS')::time
+--
+                                         else checkout end checkout
+--                               3600 work_time
+                              from employee_payroll.timesheet tms
+                                  /*
+                                   untuk mempermudah scheduler, start dan end date nya menggunakan Variable
+                                   */
+                              where date >= ${STARTDATE}::date
+                                and date < ${STARTDATE}::date),
+     emp_total_hour as (select to_char(date, 'YYYY') period_year,
+                               to_char(date, 'MM')   period_month,
+                               employee_id,
+                               count(distinct date)  workday,
+                               sum((EXTRACT(EPOCH FROM
+                                            (coalesce(checkout, to_timestamp('18:00:00', 'HH24:MI:SS')::time)) -
+                                            (coalesce(checkin, to_timestamp('09:00:00', 'HH24:MI:SS')::time)))) /
+                                   3600)             total_time
+                        from emp_daily_attendance
+                        group by 1, 2, 3),
+     salary_each_branch as (select branch_id, count(1) total_emp, sum(salary) total_salary
+                            from employee_payroll.employees
+                            group by 1),
+     worktime_each_branch as (select period_year, period_month, emp.branch_id, (sum(total_time)) total_time
+                              from emp_total_hour eth
+                                       left join employee_payroll.employees emp on emp.employee_id = eth.employee_id
+                                       left join salary_each_branch seb on seb.branch_id = emp.branch_id
+                              group by 1, 2, 3)
+insert
+into employee_payroll.summary_salary_employee
+select period_year, period_month, web.branch_id, (seb.total_salary / web.total_time) salary_per_hour
+from worktime_each_branch web
+         left join salary_each_branch seb on web.branch_id = seb.branch_id
+on conflict on constraint summary_salary_employee_pk do UPDATE set salary_per_hour=excluded.salary_per_hour;
+
+
+
+-------------------------Read From Result Table-------------------------
+
+
+select year, month, branch_id, salary_per_hour
+from employee_payroll.summary_salary_employee
+/*
+ value YEAR dan MONTH bisa di isi dengan menggunakan variable
+ */
+where year = ${YEAR}
+and month= ${MONTH}

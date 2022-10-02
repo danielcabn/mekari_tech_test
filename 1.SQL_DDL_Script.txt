@@ -1,0 +1,36 @@
+
+--CREATE SCHEMA--
+create schema employee_payroll;
+
+
+--CREATE TABLE EMPLOYEES--
+create table employee_payroll.employees
+(
+    employee_id integer,
+    branch_id   integer,
+    salary      numeric,
+    join_date   date,
+    resign_date date
+);
+
+--CREATE TABLE TIMESHEET--
+create table employee_payroll.timesheet
+(
+    timesheet_id bigint,
+    employee_id  integer,
+    date         date,
+    checkin      time,
+    checkout     time
+);
+
+
+--CREATE TABLE SUMMARY SALARY EMPLOYEE--
+create table employee_payroll.summary_salary_employee
+(
+    year            varchar not null,
+    month           varchar not null,
+    branch_id       integer not null,
+    salary_per_hour numeric,
+    constraint summary_salary_employee_pk
+        primary key (year, month, branch_id)
+);
